@@ -1,7 +1,7 @@
-# GyroBalance Motorcycle : Code Explanation BY ASSUMPTION COLLEGE SAMUTPRAKAN GRADE 12 STUDENTS
-
+# GyroBalance Motorcycle : Code Explanation
+BY ASSUMPTION COLLEGE SAMUTPRAKAN GRADE 12th STUDENTS
 This document breaks down the code for the `GyroBalance Motorcycle` project line by line, explaining the programming, the physics, and the control theory in an easy-to-understand way.
-
+MAIN CODE : PA.ino
 ## 1. Header & Includes
 
 ```cpp
