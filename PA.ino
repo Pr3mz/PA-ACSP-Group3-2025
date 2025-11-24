@@ -1,15 +1,6 @@
-/*
-   ESP32 MOTOCYCLE REACTION WHEEL BALANCER (ANALOGWRITE VERSION)
-   --------------------------------------------------------------
-   Features:
-   - Auto axis detection (tilt L<->R for 5 seconds after boot)
-   - Complementary filter (gyro + accel fusion)
-   - PD control using gyro as derivative
-   - Optional flywheel compensation term Kf * omega
-   - Web UI + WebSocket + UDP control
-   - analogWrite PWM so it compiles on your ESP32 core
-*/
-
+// ==========================
+// LIBRARIES & GLOBAL OBJECTS
+// ==========================
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
@@ -19,15 +10,18 @@
 
 MPU6050 mpu;
 
-// ===== PIN DEFINITIONS =====
+// ==========================
+// PIN DEFINITIONS
+// ==========================
 #define ENA_PIN 33
 #define IN1_PIN 26
 #define IN2_PIN 25
-
 #define SDA_PIN 21
 #define SCL_PIN 22
 
-// ===== WIFI AP MODE =====
+// ==========================
+// WIFI / NETWORK
+// ==========================
 const char* ap_ssid = "ESP32-BIKE";
 const char* ap_pass = "12345678";
 
@@ -36,44 +30,45 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 WiFiUDP Udp;
 const uint16_t UDP_PORT = 4210;
 
-// ===== CONTROL PARAMETERS =====
-float Kp = 7.0;      // proportional (for 960RPM, 6–10)
-float Kd = 0.55;     // derivative (gyro based)
-float Kf = 0.10;     // flywheel compensation
+// ==========================
+// CONTROL VARIABLES
+// ==========================
+float Kp = 7.0;
+float Kd = 0.55;
+float Kf = 0.10;
 
 float targetAngle = 0.0;
 bool motorsEnabled = false;
 
-// ===== IMU FUSION VARIABLES =====
-float angle = 0;        // fused angle
-float gyroRate = 0;     // deg/sec
+// ==========================
+// IMU VARIABLES
+// ==========================
+float angle = 0;
+float gyroRate = 0;
 float lastAngle = 0;
-
 unsigned long lastMicros = 0;
-
-// complementary filter constant (0.95–0.99 recommended)
 float alpha = 0.98;
 
-// ===== AUTO AXIS DETECTION =====
-bool useAngleX = true;  // true = atan2(ay,az) , false = atan2(ax,az)
+bool useAngleX = true;
 bool axisDetected = false;
 
-// ===== RAW IMU =====
 int16_t ax, ay, az;
 int16_t gx, gy, gz;
 
-// ===== SAFETY =====
 const float ANGLE_CUTOFF = 40.0;
 
-// ===== MOTOR CONTROL =====
+// ==========================
+// MOTOR STATE
+// ==========================
 float lastPWM = 0;
 float flywheel_speed = 0;
 
+// ==========================
+// MOTOR FUNCTION
+// ==========================
 void motorDrive(int pwm) 
 {
   pwm = constrain(pwm, -255, 255);
-
-  // estimate flywheel speed
   flywheel_speed += (pwm - lastPWM) * 0.05;
   flywheel_speed *= 0.97;
   lastPWM = pwm;
@@ -94,7 +89,9 @@ void motorDrive(int pwm)
   analogWrite(ENA_PIN, duty);
 }
 
-// ===== ANGLE COMPUTATION =====
+// ==========================
+// ANGLE FUNCTIONS
+// ==========================
 float calcAngleX() {
   return atan2((float)ay, (float)az) * 57.2958;
 }
@@ -102,7 +99,9 @@ float calcAngleY() {
   return atan2((float)ax, (float)az) * 57.2958;
 }
 
-// ===== AUTO AXIS DETECTION =====
+// ==========================
+// AUTO AXIS DETECTION
+// ==========================
 void detectAxis() 
 {
   Serial.println("AUTO AXIS DETECTION: Tilt LEFT-RIGHT for 5 seconds...");
@@ -140,7 +139,9 @@ void detectAxis()
   axisDetected = true;
 }
 
-// ===== WEBSOCKET CALLBACK =====
+// ==========================
+// WEBSOCKET HANDLER
+// ==========================
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length)
 {
   if(type == WStype_TEXT)
@@ -172,7 +173,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   }
 }
 
-// ===== UDP COMMANDS =====
+// ==========================
+// UDP HANDLER
+// ==========================
 void handleUDP()
 {
   int pk = Udp.parsePacket();
@@ -192,7 +195,9 @@ void handleUDP()
   else if(cmd.startsWith("Kf=")) Kf = cmd.substring(3).toFloat();
 }
 
-// ===== HTML PAGE =====
+// ==========================
+// HTML PAGE
+// ==========================
 const char webpage[] PROGMEM = R"===(
 <!DOCTYPE html><html><head>
 <title>ESP32 Bike</title>
@@ -224,9 +229,9 @@ function setP(){
 </body></html>
 )===";
 
-// ======================================================
+// ==========================
 // SETUP
-// ======================================================
+// ==========================
 void setup()
 {
   Serial.begin(115200);
@@ -237,16 +242,13 @@ void setup()
   pinMode(IN2_PIN, OUTPUT);
   analogWrite(ENA_PIN, 0);
 
-  // MPU
   Wire.begin(SDA_PIN, SCL_PIN);
   delay(300);
   mpu.initialize();
   Serial.println(mpu.testConnection() ? "MPU OK" : "MPU FAIL");
 
-  // Axis detection
   detectAxis();
 
-  // WiFi AP
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ap_ssid, ap_pass);
   server.on("/", [](){ server.send_P(200,"text/html", webpage); });
@@ -260,9 +262,9 @@ void setup()
   lastMicros = micros();
 }
 
-// ======================================================
+// ==========================
 // MAIN LOOP
-// ======================================================
+// ==========================
 void loop()
 {
   server.handleClient();
@@ -275,19 +277,13 @@ void loop()
   if(dt > 0.05) dt = 0.05;
   lastMicros = now;
 
-  // IMU raw
   mpu.getMotion6(&ax,&ay,&az,&gx,&gy,&gz);
 
-  // choose roll axis
   float accAngle = useAngleX ? calcAngleX() : calcAngleY();
+  gyroRate = (float)gy / 131.0;
 
-  // gyro rate (deg/sec), choose correct axis - assuming Y rotation for roll
-  gyroRate = (float)gy / 131.0;  // 131 LSB/°/s on default setting
-
-  // Complementary filter fusion
   angle = alpha*(angle + gyroRate*dt) + (1.0-alpha)*accAngle;
 
-  // PD control
   float error = angle - targetAngle;
   float out = Kp*error + Kd*(-gyroRate) + Kf*flywheel_speed;
 
@@ -300,7 +296,6 @@ void loop()
     motorDrive((int)out);
   }
 
-  // send status every 200ms
   static unsigned long lastSend=0;
   if(millis()-lastSend > 200){
     String msg = "A:"+String(angle,2)+" O:"+String(out,1);
